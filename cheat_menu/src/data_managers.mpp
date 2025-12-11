@@ -1,0 +1,99 @@
+export module data_managers;
+
+import std;
+import types;
+import json;
+
+
+export
+struct teleport_t {
+    std::string name = "";
+    std::array<f32, 3> position = {};
+    auto to_json() -> json {
+        return json {
+            { "name", name },
+            { "position", position }
+        };
+    }
+    static
+    auto from_json(json j) -> teleport_t {
+        return {
+            .name = j.value("name", "None"),
+            .position = j.value("position", std::array<f32, 3>{})
+        };
+    }
+};
+
+
+export
+class DataImporter {
+public:
+    DataImporter() {}
+    ~DataImporter() {}
+    DataImporter(DataImporter&& rhs) : data_(std::move(rhs.data_)) {}
+    auto operator= (DataImporter&& rhs) -> DataImporter& { data_ = std::move(rhs.data_); return *this; }
+
+    static
+    auto Create() -> std::expected<DataImporter, std::string> {
+        return DataImporter{};
+    }
+
+    auto getTeleportTable() -> std::list<teleport_t> {
+        auto teleportTableJson= data_.value("teleport_table", std::list<json>());
+        return teleportTableJson
+            | std::views::transform(teleport_t::from_json)
+            | std::ranges::to<std::list<teleport_t>>();
+    }
+
+    auto importData(std::string const& filepath) -> std::expected<b8, std::string> {
+        std::error_code err;
+        u64 size = std::filesystem::file_size(filepath, err);
+        if (err) return std::unexpected("Failed to open file");
+
+        std::string jsonStr(size, '\0');
+        {
+        std::ifstream file(filepath);
+        if (file.fail()) return std::unexpected("Failed to open file");
+        file.read(&jsonStr[0], size);
+        }
+
+        data_ = json::parse(jsonStr, nullptr, false);
+        if (data_.is_discarded()) return std::unexpected("Invalid JSON");
+
+        return true;
+    }
+
+private:
+    json data_;
+};
+
+
+export
+class DataExporter {
+public:
+    DataExporter() {}
+    ~DataExporter() {}
+    DataExporter(DataExporter&& rhs) : data_(std::move(rhs.data_)) {}
+    auto operator= (DataExporter&& rhs) -> DataExporter& { data_ = std::move(rhs.data_); return *this; }
+
+    static
+    auto Create() -> std::expected<DataExporter, std::string> {
+        return DataExporter{};
+    }
+
+    auto setTeleportTable(std::list<teleport_t>& table) -> void {
+        data_["teleport_table"] = table
+            | std::views::transform(&teleport_t::to_json)
+            | std::ranges::to<std::vector>();
+    }
+
+    auto exportData(std::string const& filepath) -> std::expected<b8, std::string> {
+        std::ofstream file(filepath);
+        if (file.fail()) return std::unexpected("Failed to open file");
+        file << data_;
+        return true;
+    }
+
+private:
+    json data_;
+};

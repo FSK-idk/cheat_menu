@@ -1,0 +1,39 @@
+module;
+
+#include <GLFW/glfw3.h>
+
+export module glfw;
+
+
+export
+namespace glfw {
+
+using Window = GLFWwindow;
+
+enum WindowHint {
+    eContextVersionMajor = GLFW_CONTEXT_VERSION_MAJOR,
+    eContextVersionMinor = GLFW_CONTEXT_VERSION_MINOR,
+    eOpenGlProfile = GLFW_OPENGL_PROFILE,
+    eOpenGlForwardCompat = GLFW_OPENGL_FORWARD_COMPAT,
+    eWaylandAppId = GLFW_WAYLAND_APP_ID,
+};
+
+enum OpenGlProfile {
+    eCore = GLFW_OPENGL_CORE_PROFILE,
+};
+
+auto setErrorCallback(GLFWerrorfun callback) { return glfwSetErrorCallback(callback); };
+auto init() { return glfwInit(); }
+auto terminate() { return glfwTerminate(); }
+auto setWindowHint(int hint, int value) { return glfwWindowHint(hint, value); }
+auto setWindowHint(int hint, char const* value) { return glfwWindowHintString(hint, value); }
+auto createWindow(int width, int height, const char* title, GLFWmonitor* monitor, GLFWwindow* share) { return glfwCreateWindow(width, height, title, monitor, share); }
+auto destroyWindow(Window* window) { return glfwDestroyWindow(window); }
+auto windowShouldClose(GLFWwindow* window) { return glfwWindowShouldClose(window); }
+auto swapBuffers(GLFWwindow* window) { return glfwSwapBuffers(window); }
+auto getFrameBufferSize(GLFWwindow* window, int* width, int* height) { return glfwGetFramebufferSize(window, width, height); }
+auto makeContextCurrent(GLFWwindow* window) { return glfwMakeContextCurrent(window); }
+auto setSwapInterval(int interval) { return glfwSwapInterval(interval); }
+auto pollEvents() { return glfwPollEvents(); }
+
+}

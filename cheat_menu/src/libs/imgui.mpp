@@ -1,0 +1,171 @@
+module;
+
+#include "imgui.h"
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_glfw.h"
+
+export module imgui;
+
+import std;
+
+
+// i got linker errors when using functions from imgui_stdlib.h
+// so i just pasted it here
+
+struct InputTextCallback_UserData
+{
+    std::string*            Str;
+    ImGuiInputTextCallback  ChainCallback;
+    void*                   ChainCallbackUserData;
+};
+
+int InputTextCallback(ImGuiInputTextCallbackData* data)
+{
+    InputTextCallback_UserData* user_data = (InputTextCallback_UserData*)data->UserData;
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize)
+    {
+        // Resize string callback
+        // If for some reason we refuse the new length (BufTextLen) and/or capacity (BufSize) we need to set them back to what we want.
+        std::string* str = user_data->Str;
+        IM_ASSERT(data->Buf == str->c_str());
+        str->resize(data->BufTextLen);
+        data->Buf = (char*)str->c_str();
+    }
+    else if (user_data->ChainCallback)
+    {
+        // Forward to user callback, if any
+        data->UserData = user_data->ChainCallbackUserData;
+        return user_data->ChainCallback(data);
+    }
+    return 0;
+}
+
+namespace ImGui {
+
+bool InputText(const char* label, std::string* str, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback, void* user_data)
+{
+    IM_ASSERT((flags & ImGuiInputTextFlags_CallbackResize) == 0);
+    flags |= ImGuiInputTextFlags_CallbackResize;
+
+    InputTextCallback_UserData cb_user_data;
+    cb_user_data.Str = str;
+    cb_user_data.ChainCallback = callback;
+    cb_user_data.ChainCallbackUserData = user_data;
+    return InputText(label, (char*)str->c_str(), str->capacity() + 1, flags, InputTextCallback, &cb_user_data);
+}
+
+}
+
+
+export
+namespace imgui {
+
+using Io = ImGuiIO;
+using Viewport = ImGuiViewport;
+using Style = ImGuiStyle;
+using Vec2 = ImVec2;
+
+enum DataType {
+    eU32 = ImGuiDataType_U32,
+};
+
+enum WindowFlags {
+    eNoTitleBar = ImGuiWindowFlags_NoTitleBar,
+    eNoCollapse = ImGuiWindowFlags_NoCollapse,
+    eNoResize = ImGuiWindowFlags_NoResize,
+    eNoMove = ImGuiWindowFlags_NoMove,
+    eNoBringToFrontOnFocus = ImGuiWindowFlags_NoBringToFrontOnFocus,
+    eNoNavFocus = ImGuiWindowFlags_NoNavFocus,
+    eMenuBar = ImGuiWindowFlags_MenuBar,
+};
+
+enum TableFlags {
+    eBorders = ImGuiTableFlags_Borders,
+    eRowBg = ImGuiTableFlags_RowBg,
+    eResizable = ImGuiTableFlags_Resizable,
+    eNoPadInnerX = ImGuiTableFlags_NoPadInnerX,
+    eNoPadOuterX = ImGuiTableFlags_NoPadOuterX,
+};
+
+enum TableColumnFlags {
+    eWidthFixed = ImGuiTableColumnFlags_WidthFixed,
+    eWidthStretch = ImGuiTableColumnFlags_WidthStretch,
+};
+
+enum Cond {
+    eFirstUseEver = ImGuiCond_FirstUseEver,
+    eAlways = ImGuiCond_Always,
+};
+
+enum StyleVar {
+    eCellPadding = ImGuiStyleVar_CellPadding,
+};
+
+auto createContext(ImFontAtlas* shared_font_atlas = NULL) { return ImGui::CreateContext(shared_font_atlas); }
+auto setCurrentContext(ImGuiContext* ctx) { return ImGui::SetCurrentContext(ctx); }
+auto destroyContext(ImGuiContext* ctx = NULL) { return ImGui::DestroyContext(ctx); }
+auto& getIo() { return ImGui::GetIO(); }
+auto& getStyle() { return ImGui::GetStyle(); }
+auto styleColorsDark(ImGuiStyle* dst = NULL) { return ImGui::StyleColorsDark(dst); }
+auto newFrame() { return ImGui::NewFrame(); }
+auto getMainViewport() { return ImGui::GetMainViewport(); }
+auto setNextWindowPos(const ImVec2& pos, ImGuiCond cond = 0, const ImVec2& pivot = ImVec2(0, 0)) { return ImGui::SetNextWindowPos(pos, cond, pivot); }
+auto setNextWindowSize(const ImVec2& size, ImGuiCond cond = 0) { return ImGui::SetNextWindowSize(size, cond); }
+auto begin(const char* name, bool* p_open = NULL, ImGuiWindowFlags flags = 0) { return ImGui::Begin(name, p_open, flags); }
+auto end() { return ImGui::End(); }
+auto beginChild(const char* str_id, const ImVec2& size = ImVec2(0, 0), ImGuiChildFlags child_flags = 0, ImGuiWindowFlags window_flags = 0) { return ImGui::BeginChild(str_id, size, child_flags, window_flags); }
+auto endChild() { return ImGui::EndChild(); }
+auto textUnformatted(const char* text, const char* text_end = NULL) { return ImGui::TextUnformatted(text, text_end); }
+auto button(const char* label, const ImVec2& size = ImVec2(0, 0)) { return ImGui::Button(label, size); }
+auto checkbox(const char *label, bool *v) { return ImGui::Checkbox(label, v); }
+auto sameLine(float offset_from_start_x = 0.0f, float spacing = -1.0f) { return ImGui::SameLine(offset_from_start_x, spacing); }
+auto inputFloat(const char* label, float* v, float step = 0.0f, float step_fast = 0.0f, const char* format = "%.3f", ImGuiInputTextFlags flags = 0) { return ImGui::InputFloat(label, v, step, step_fast, format, flags); }
+auto inputScalar(const char* label, ImGuiDataType data_type, void* p_data, const void* p_step = NULL, const void* p_step_fast = NULL, const char* format = NULL, ImGuiInputTextFlags flags = 0) { return ImGui::InputScalar(label, data_type, p_data, p_step, p_step_fast, format, flags); }
+auto inputText(const char* label, std::string* str, ImGuiInputTextFlags flags = 0, ImGuiInputTextCallback callback = nullptr, void* user_data = nullptr) { return ImGui::InputText(label, str, flags, callback, user_data); }
+auto beginMenuBar() { return ImGui::BeginMenuBar(); }
+auto endMenuBar() { return ImGui::EndMenuBar(); }
+auto beginMenu(const char* label, bool enabled = true) { return ImGui::BeginMenu; }
+auto endMenu() { return ImGui::EndMenu(); }
+auto pushItemWidth(float item_width) { return ImGui::PushItemWidth; }
+auto popItemWidth() { return ImGui::PopItemWidth(); }
+auto setNextItemWidth(float item_width) { return ImGui::SetNextItemWidth(item_width); }
+auto menuItem(const char* label, const char* shortcut = NULL, bool selected = false, bool enabled = true) { return ImGui::MenuItem(label, shortcut, selected, enabled); }
+auto menuItem(const char* label, const char* shortcut, bool* p_selected, bool enabled = true) { return ImGui::MenuItem(label, shortcut, p_selected, enabled); }
+auto columns(int count = 1, const char* id = NULL, bool borders = true) { return ImGui::Columns(count, id, borders); }
+auto nextColumn() { return ImGui::NextColumn(); }
+auto beginTable(const char* str_id, int columns, ImGuiTableFlags flags = 0, const ImVec2& outer_size = ImVec2(0.0f, 0.0f), float inner_width = 0.0f) { return ImGui::BeginTable(str_id, columns, flags, outer_size, inner_width); }
+auto tableSetupColumn(const char* label, ImGuiTableColumnFlags flags = 0, float init_width_or_weight = 0.0f, ImGuiID user_id = 0) { return ImGui::TableSetupColumn(label, flags, init_width_or_weight, user_id); }
+auto tableHeadersRow() { return ImGui::TableHeadersRow(); }
+auto tableNextRow(ImGuiTableRowFlags row_flags = 0, float min_row_height = 0.0f) { return ImGui::TableNextRow(row_flags, min_row_height); }
+auto tableNextColumn() { return ImGui::TableNextColumn(); }
+auto endTable() { return ImGui::EndTable(); }
+auto render() { return ImGui::Render(); }
+auto getDrawData() { return ImGui::GetDrawData(); }
+auto getFontSize() { return ImGui::GetFontSize(); }
+auto setCursorPosY(float local_y) { return ImGui::SetCursorPosY(local_y); }
+auto getContentRegionAvail() { return ImGui::GetContentRegionAvail(); }
+auto getCursorPos() { return ImGui::GetCursorPos(); }
+auto separator() { return ImGui::Separator(); }
+auto getTextLineHeight() { return ImGui::GetTextLineHeight(); }
+auto pushStyleVar(StyleVar idx, float val) { return ImGui::PushStyleVar(idx, val); }
+auto pushStyleVar(ImGuiStyleVar idx, const ImVec2& val) { return ImGui::PushStyleVar(idx, val); }
+auto popStyleVar(int count = 1) { return ImGui::PopStyleVar(count); }
+
+namespace glfw {
+
+auto initForOpenGl(GLFWwindow* window, bool install_callbacks) { return ImGui_ImplGlfw_InitForOpenGL(window, install_callbacks); }
+auto shutdown() { return ImGui_ImplGlfw_Shutdown(); }
+auto newFrame() { return ImGui_ImplGlfw_NewFrame(); }
+
+}
+
+namespace gl {
+
+auto init(const char* glsl_version = nullptr) { return ImGui_ImplOpenGL3_Init(); }
+auto shutdown() { return ImGui_ImplOpenGL3_Shutdown(); }
+auto newFrame() { return ImGui_ImplOpenGL3_NewFrame(); }
+auto renderDrawData(ImDrawData* draw_data) { return ImGui_ImplOpenGL3_RenderDrawData(draw_data); }
+
+}
+
+}

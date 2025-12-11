@@ -1,0 +1,120 @@
+export module memory_accessor;
+
+import std;
+import types;
+import posix;
+
+
+static constexpr
+u64 gameDataAddress_ = 0x141020918;
+
+
+auto checkProcess(u32 pid) -> std::expected<b8, std::string> {
+    if (posix::kill(pid, 0) == 0) return true;
+    else return std::unexpected(std::strerror(posix::geterrno()));
+}
+
+auto readProcessMemory(u32 pid, u64 address, std::span<u8> data) -> std::expected<b8, std::string> {
+    posix::iovec locbuf = {
+        .iov_base = reinterpret_cast<void*>(&data[0]),
+        .iov_len = data.size(),
+    };
+
+    posix::iovec membuf = {
+        .iov_base = reinterpret_cast<void*>(address),
+        .iov_len = data.size(),
+    };
+
+    u64 res = posix::process_vm_readv(pid, &locbuf, 1, &membuf, 1, 0);
+    if (res == -1) return std::unexpected(std::strerror(posix::geterrno()));
+
+    return true;
+}
+
+auto writeProcessMemory(u32 pid, u64 address, std::span<u8> data) -> std::expected<b8, std::string> {
+    posix::iovec locbuf = {
+        .iov_base = reinterpret_cast<void*>(&data[0]),
+        .iov_len = data.size(),
+    };
+
+    posix::iovec membuf = {
+        .iov_base = reinterpret_cast<void*>(address),
+        .iov_len = data.size(),
+    };
+
+    u64 res = posix::process_vm_writev(pid, &locbuf, 1, &membuf, 1, 0);
+    if (res == -1) return std::unexpected(std::strerror(posix::geterrno()));
+
+    return true;
+}
+
+
+export
+class MemoryAccessor {
+public:
+    MemoryAccessor() : pid_(-1), gameObjectAddress_(-1) {}
+    ~MemoryAccessor() {}
+    MemoryAccessor(MemoryAccessor&& rhs)
+        : pid_(std::exchange(rhs.pid_, -1))
+        , gameObjectAddress_(std::exchange(rhs.gameObjectAddress_, -1)) {}
+    auto operator= (MemoryAccessor&& rhs) -> MemoryAccessor& {
+        pid_ = std::exchange(rhs.pid_, -1);
+        gameObjectAddress_ = std::exchange(rhs.gameObjectAddress_, -1); return *this; }
+
+    static
+    auto Create(u32 pid) -> std::expected<MemoryAccessor, std::string> {
+        {
+        auto res = checkProcess(pid);
+        if (!res) return std::unexpected(std::move(res.error()));
+        }
+
+        u64 gameObjectAddress = 0;
+        {
+        auto res = readProcessMemory(pid, gameDataAddress_, { reinterpret_cast<u8*>(&gameObjectAddress), 8 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        }
+
+        return MemoryAccessor{ pid, gameObjectAddress };
+    }
+
+    auto getHp() -> std::expected<u32, std::string> {
+        i32 hp;
+        auto res = readProcessMemory(pid_, gameObjectAddress_ + 67176, { reinterpret_cast<u8*>(&hp), 4 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        return hp;
+    }
+
+    auto getPosition() -> std::expected<std::array<f32, 3>, std::string> {
+        std::array<f32, 3> pos;
+        auto res = readProcessMemory(pid_, gameObjectAddress_ + 80, { reinterpret_cast<u8*>(&pos[0]), 12 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        return pos;
+    }
+
+    auto setHp(u32 hp) -> std::expected<b8, std::string> {
+        auto res = writeProcessMemory(pid_, gameObjectAddress_ + 67176, { reinterpret_cast<u8*>(&hp), 4 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        return true;
+    }
+
+    auto setPosition(std::array<f32, 3> pos) -> std::expected<b8, std::string> {
+        {
+        auto res = writeProcessMemory(pid_, gameObjectAddress_ + 80, { reinterpret_cast<u8*>(&pos[0]), 12 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        }
+        {
+        auto res = writeProcessMemory(pid_, gameObjectAddress_ + 6592, { reinterpret_cast<u8*>(&pos[0]), 12 });
+        if (!res) return std::unexpected(std::move(res.error()));
+        }
+        return true;
+    }
+
+    auto pid() -> u32 { return pid_; }
+
+private:
+    MemoryAccessor(u32 pid, u64 gameObjectAddress) : pid_(pid), gameObjectAddress_(gameObjectAddress) {}
+
+private:
+    u32 pid_;
+    u64 gameObjectAddress_;
+};

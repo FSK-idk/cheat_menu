@@ -1,0 +1,613 @@
+export module application;
+
+import std;
+import types;
+import glfw;
+import gl;
+import imgui;
+import window;
+import memory_accessor;
+import data_managers;
+
+
+export
+class Application {
+public:
+    Application() {}
+    ~Application() {}
+    Application(Application&& rhs) = default;
+
+    static
+    auto Create(Window window) -> std::optional<Application> {
+        return Application{ std::move(window) };
+    }
+
+    auto run() -> void {
+        while (!window_.shouldClose()) {
+            glfw::pollEvents();
+
+            imgui::gl::newFrame();
+            imgui::glfw::newFrame();
+            imgui::newFrame();
+
+            showMainWindow();
+            showAttachWindow();
+            showImportWindow();
+            showExportWindow();
+
+            imgui::render();
+            auto [width, height] = window_.getFrameBufferSize();
+            gl::setViewport(0, 0, width, height);
+            imgui::gl::renderDrawData(imgui::getDrawData());
+
+            window_.swapBuffers();
+        }
+    }
+
+private:
+    auto showMainWindow() -> void {
+        imgui::Io& io = imgui::getIo();
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::Viewport* viewport = imgui::getMainViewport();
+        imgui::setNextWindowPos(viewport->WorkPos);
+        imgui::setNextWindowSize(viewport->WorkSize);
+
+        imgui::begin(
+            "MainWindow",
+            nullptr,
+            imgui::WindowFlags::eNoTitleBar |
+            imgui::WindowFlags::eNoCollapse |
+            imgui::WindowFlags::eNoResize |
+            imgui::WindowFlags::eNoMove|
+            imgui::WindowFlags::eNoBringToFrontOnFocus|
+            imgui::WindowFlags::eNoNavFocus |
+            imgui::WindowFlags::eMenuBar);
+
+        showMenu();
+        showEntryWindow();
+        showMenuWindow();
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 cursorPosition = imgui::getCursorPos();
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+
+        f32 textHeight = imgui::getTextLineHeight();
+
+        f32 deltaY = regionAvailable.y - textHeight - itemSpacing.y - 1;
+        imgui::setCursorPosY(cursorPosition.y + deltaY);
+
+        imgui::separator();
+
+        imgui::textUnformatted(std::format("{:6.2f} | Last error: {}", io.Framerate, mainWindowError_).c_str());
+
+        imgui::end();
+    }
+
+    auto showMenu() -> void {
+        if (imgui::beginMenuBar()) {
+            if (!attachedToProcess_) {
+                if (imgui::menuItem("Attach")) {
+                    isAttachWindowShown_ = true;
+                }
+            }
+            else {
+                if (imgui::menuItem("Detach")) {
+                    detachFromProcess();
+                    mainWindowError_ = "";
+                    isMenuWindowShown_ = false;
+                }
+
+                if (imgui::menuItem("Import")) {
+                    isImportWindowShown_ = true;
+                }
+
+                if (imgui::menuItem("Export")) {
+                    isExportWindowShown_ = true;
+                }
+            }
+            imgui::endMenuBar();
+        }
+    }
+
+    auto showEntryWindow() -> void {
+        if (isMenuWindowShown_) return;
+
+        imgui::textUnformatted("Welcome to cheat menu");
+
+        imgui::separator();
+
+        imgui::textUnformatted("Attach to process to use");
+    }
+
+    auto showMenuWindow() -> void {
+        if (!isMenuWindowShown_) return;
+
+        imgui::textUnformatted("Menu");
+        imgui::separator();
+
+        if (imgui::beginTable("MenuLayout", 2, imgui::TableFlags::eResizable)) {
+            imgui::tableNextRow();
+            imgui::tableNextColumn();
+
+
+            imgui::Style& style = imgui::getStyle();
+
+            imgui::Vec2 itemSpacing = style.ItemSpacing;
+            imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+            f32 textHeight = imgui::getTextLineHeight();
+
+            f32 childHeight = regionAvailable.y - textHeight - itemSpacing.y - 1;
+
+            imgui::beginChild("LeftSide", { 0, childHeight });
+
+            showCurrentHpInfo();
+            showCurrentPositionInfo();
+
+            imgui::separator();
+
+            showHpMenu();
+
+            imgui::separator();
+
+            showTeleportMenu();
+
+            imgui::endChild();
+
+            imgui::tableNextColumn();
+
+            showTeleportTable();
+
+            imgui::endTable();
+        }
+    }
+    
+    auto showCurrentHpInfo() -> void {
+        auto res = updateCurrentHp();
+        if (!res) mainWindowError_ = std::move(res.error());
+
+        imgui::textUnformatted(std::format("Current HP: {:9}", currentHp_).c_str());
+    }
+
+    auto showCurrentPositionInfo() -> void {
+        auto res = updateCurrentPosition();
+        if (!res) mainWindowError_ = std::move(res.error());
+
+        imgui::textUnformatted("Current position");
+        imgui::textUnformatted(std::format("X: {:8.3f}", currentPosition_[0]).c_str());
+        imgui::textUnformatted(std::format("Y: {:8.3f}", currentPosition_[1]).c_str());
+        imgui::textUnformatted(std::format("Z: {:8.3f}", currentPosition_[2]).c_str());
+    }
+
+    auto showHpMenu() -> void {
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::textUnformatted("HP");
+        imgui::inputScalar("HP##HPHP", imgui::DataType::eU32, &inputHp_);
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+
+        f32 buttonWidth = (regionAvailable.x - itemSpacing.x) / 2;
+
+        if (imgui::button("Reset##ResetHP", { buttonWidth, 0 })) {
+            inputHp_ = currentHp_;
+        }
+
+        imgui::sameLine();
+
+        if (imgui::button("Change##ChangeHP", { buttonWidth, 0 })) {
+            auto res = setCurrentHp();
+            if (!res) mainWindowError_ = std::move(res.error());
+        }
+    }
+
+    auto showTeleportMenu() -> void {
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::textUnformatted("Teleport");
+        imgui::inputFloat("X##TeleportX", &inputTeleportPosition_[0]);
+        imgui::inputFloat("Y##TeleportY", &inputTeleportPosition_[1]);
+        imgui::inputFloat("Z##TeleportZ", &inputTeleportPosition_[2]);
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+
+        f32 buttonWidth = (regionAvailable.x - itemSpacing.x) / 2;
+
+        if (imgui::button("Reset##ResetTeleport", { buttonWidth, 0 })) {
+            inputTeleportPosition_ = currentPosition_;
+        }
+
+        imgui::sameLine();
+
+        if (imgui::button("Teleport##TeleportTeleport", { buttonWidth, 0 })) {
+            auto res = setCurrentPosition();
+            if (!res) mainWindowError_ = std::move(res.error());
+        }
+    }
+
+    auto showTeleportTable() -> void {
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+        f32 textHeight = imgui::getTextLineHeight();
+
+        f32 childHeight = regionAvailable.y - textHeight - itemSpacing.y - 1;
+
+        imgui::beginChild("TeleportTableSide", { 0, childHeight });
+
+        imgui::textUnformatted("Teleports");
+        imgui::pushStyleVar(imgui::StyleVar::eCellPadding, { 0, 0 });
+
+        std::vector<std::list<teleport_t>::iterator> toDelete;
+
+        u64 i = 0;
+        auto it = teleportTable_.begin();
+
+        if (imgui::beginTable(
+            "Teleports", 6,
+            imgui::TableFlags::eResizable |
+            imgui::TableFlags::eBorders |
+            imgui::TableFlags::eNoPadInnerX |
+            imgui::TableFlags::eNoPadOuterX)) {
+
+            imgui::tableSetupColumn("Name", imgui::TableColumnFlags::eWidthFixed);
+            imgui::tableSetupColumn("X", imgui::TableColumnFlags::eWidthStretch);
+            imgui::tableSetupColumn("Y", imgui::TableColumnFlags::eWidthStretch);
+            imgui::tableSetupColumn("Z", imgui::TableColumnFlags::eWidthStretch);
+            imgui::tableSetupColumn("DEL", imgui::TableColumnFlags::eWidthFixed);
+            imgui::tableSetupColumn("TP", imgui::TableColumnFlags::eWidthFixed);
+            imgui::tableHeadersRow();
+
+            for (; it != teleportTable_.end(); ++i, ++it) {
+                auto& [name, position] = *it;
+
+                imgui::tableNextRow(0, 0);
+                imgui::tableNextColumn();
+
+                imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+                imgui::inputText(std::format("##TableN{}", i).c_str(), &name);
+
+                imgui::tableNextColumn();
+
+                imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+                imgui::inputFloat(std::format("##TableX{}", i).c_str(), &position[0]);
+
+                imgui::tableNextColumn();
+
+                imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+                imgui::inputFloat(std::format("##TableY{}", i).c_str(), &position[1]);
+
+                imgui::tableNextColumn();
+
+                imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+                imgui::inputFloat(std::format("##TableZ{}", i).c_str(), &position[2]);
+
+                imgui::tableNextColumn();
+
+                if (imgui::button(std::format("##TableD{}", i).c_str(), { -std::numeric_limits<f32>::min(), 0 })) {
+                    toDelete.push_back(it);
+                }
+
+                imgui::tableNextColumn();
+
+                if (imgui::button(std::format("##TableT{}", i).c_str(), { -std::numeric_limits<f32>::min(), 0 })) {
+                    auto res = setCurrentPosition(position);
+                    if (!res) mainWindowError_ = std::move(res.error());
+                }
+            }
+
+            imgui::endTable();
+        }
+
+        for (auto it : toDelete) teleportTable_.erase(it);
+
+        imgui::popStyleVar(1);
+
+        f32 buttonWidth = regionAvailable.x;
+
+        if (imgui::button("Add", { buttonWidth, 0 })) {
+            teleportTable_.push_back({ std::format("{}", i), currentPosition_ });
+        }
+
+        imgui::endChild();
+    }
+
+    auto showAttachWindow() -> void {
+        if (!isAttachWindowShown_) return;
+
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::Viewport* viewport = imgui::getMainViewport();
+        imgui::setNextWindowPos(viewport->WorkPos, imgui::Cond::eFirstUseEver);
+        imgui::setNextWindowSize({ 400, 200 });
+
+        imgui::begin(
+            "AttachWindow",
+            nullptr,
+            imgui::WindowFlags::eNoTitleBar |
+            imgui::WindowFlags::eNoCollapse |
+            imgui::WindowFlags::eNoResize);
+
+        imgui::textUnformatted("Attach to process");
+
+        imgui::separator();
+
+        imgui::textUnformatted("Enter pid");
+        imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+        imgui::inputScalar("##AttachWindowInputPid", imgui::DataType::eU32, &attachWindowInputPid_);
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 framePadding = style.FramePadding;
+        imgui::Vec2 cursorPosition = imgui::getCursorPos();
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+        f32 fontSize = imgui::getFontSize();
+
+        f32 buttonHeight = fontSize + framePadding.y * 2.0;
+        f32 textHeight = imgui::getTextLineHeight();
+
+        f32 deltaY = regionAvailable.y - buttonHeight - textHeight - itemSpacing.y * 2 - 1;
+        imgui::setCursorPosY(cursorPosition.y + deltaY);
+
+        f32 buttonWidth = (regionAvailable.x - itemSpacing.x) / 2;
+
+        if (imgui::button("Cancel", { buttonWidth, 0 })) {
+            attachWindowError_ = "";
+            attachWindowInputPid_ = 0;
+            isAttachWindowShown_ = false;
+        }
+
+        imgui::sameLine(0, -1);
+
+        if (imgui::button("Attach", { buttonWidth, 0 })) {
+            auto res = attachToProcess();
+            if (!res) attachWindowError_ = std::move(res.error());
+            else {
+                attachWindowError_ = "";
+                attachWindowInputPid_ = 0;
+                isAttachWindowShown_ = false;
+                isMenuWindowShown_ = true;
+            }
+        }
+
+        imgui::separator();
+
+        imgui::textUnformatted(std::format("Last error: {}", attachWindowError_).c_str());
+
+        imgui::end();
+    }
+
+    auto showImportWindow() -> void {
+        if (!isImportWindowShown_) return;
+
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::Viewport* viewport = imgui::getMainViewport();
+        imgui::setNextWindowPos(viewport->WorkPos, imgui::Cond::eFirstUseEver);
+        imgui::setNextWindowSize({ 400, 200 });
+
+        imgui::begin(
+            "ImportWindow",
+            nullptr,
+            imgui::WindowFlags::eNoTitleBar |
+            imgui::WindowFlags::eNoCollapse |
+            imgui::WindowFlags::eNoResize);
+
+        imgui::textUnformatted("Import JSON file");
+
+        imgui::separator();
+
+        imgui::textUnformatted("Enter filepath");
+        imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+        imgui::inputText("##ImportWindowFilepath", &importWindowFilepath_);
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 framePadding = style.FramePadding;
+        imgui::Vec2 cursorPosition = imgui::getCursorPos();
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+        f32 fontSize = imgui::getFontSize();
+
+        f32 buttonHeight = fontSize + framePadding.y * 2.0;
+        f32 textHeight = imgui::getTextLineHeight();
+
+        f32 deltaY = regionAvailable.y - buttonHeight - textHeight - itemSpacing.y * 2 - 1;
+        imgui::setCursorPosY(cursorPosition.y + deltaY);
+
+        f32 buttonWidth = (regionAvailable.x - itemSpacing.x) / 2;
+
+        if (imgui::button("Cancel", { buttonWidth, 0 })) {
+            importWindowError_ = "";
+            importWindowFilepath_ = "";
+            isImportWindowShown_ = false;
+        }
+
+        imgui::sameLine(0, -1);
+
+        if (imgui::button("Import", { buttonWidth, 0 })) {
+            auto res = importData();
+            if (!res) importWindowError_ = std::move(res.error());
+            else {
+                importWindowError_ = "";
+                importWindowFilepath_ = "";
+                isImportWindowShown_ = false;
+            }
+        }
+
+        imgui::separator();
+
+        imgui::textUnformatted(std::format("Last error: {}", importWindowError_).c_str());
+
+        imgui::end();
+    }
+
+    auto showExportWindow() -> void {
+        if (!isExportWindowShown_) return;
+
+        imgui::Style& style = imgui::getStyle();
+
+        imgui::Viewport* viewport = imgui::getMainViewport();
+        imgui::setNextWindowPos(viewport->WorkPos, imgui::Cond::eFirstUseEver);
+        imgui::setNextWindowSize({ 400, 200 });
+
+        imgui::begin(
+            "ExportWindow",
+            nullptr,
+            imgui::WindowFlags::eNoTitleBar |
+            imgui::WindowFlags::eNoCollapse |
+            imgui::WindowFlags::eNoResize);
+
+        imgui::textUnformatted("Export JSON file");
+
+        imgui::separator();
+
+        imgui::textUnformatted("Enter filepath");
+        imgui::setNextItemWidth(-std::numeric_limits<f32>::min());
+        imgui::inputText("##ExportWindowFilepath", &exportWindowFilepath_);
+
+        imgui::Vec2 itemSpacing = style.ItemSpacing;
+        imgui::Vec2 framePadding = style.FramePadding;
+        imgui::Vec2 cursorPosition = imgui::getCursorPos();
+        imgui::Vec2 regionAvailable = imgui::getContentRegionAvail();
+        f32 fontSize = imgui::getFontSize();
+
+        f32 buttonHeight = fontSize + framePadding.y * 2.0;
+        f32 textHeight = imgui::getTextLineHeight();
+
+        f32 deltaY = regionAvailable.y - buttonHeight - textHeight - itemSpacing.y * 2 - 1;
+        imgui::setCursorPosY(cursorPosition.y + deltaY);
+
+        f32 buttonWidth = (regionAvailable.x - itemSpacing.x) / 2;
+
+        if (imgui::button("Cancel", { buttonWidth, 0 })) {
+            exportWindowError_ = "";
+            exportWindowFilepath_ = "";
+            isExportWindowShown_ = false;
+        }
+
+        imgui::sameLine(0, -1);
+
+        if (imgui::button("Export", { buttonWidth, 0 })) {
+            auto res = exportData();
+            if (!res) exportWindowError_ = std::move(res.error());
+            else {
+                exportWindowError_ = "";
+                exportWindowFilepath_ = "";
+                isExportWindowShown_ = false;
+            }
+        }
+
+        imgui::separator();
+
+        imgui::textUnformatted(std::format("Last error: {}", exportWindowError_).c_str());
+
+        imgui::end();
+    }
+
+private:
+    auto attachToProcess() -> std::expected<b8, std::string> {
+        auto res = MemoryAccessor::Create(attachWindowInputPid_);
+        if (!res) return std::unexpected(std::move(res.error()));
+        accessor_ = std::move(*res);
+        attachedToProcess_ = true;
+        return true;
+    }
+
+    auto detachFromProcess() -> void {
+        attachedToProcess_ = false;
+        teleportTable_.clear();
+        inputTeleportPosition_ = {};
+        currentPosition_ = {};
+    }
+
+    auto updateCurrentHp() -> std::expected<b8, std::string> {
+        auto res = accessor_.getHp();
+        if (!res) return std::unexpected(std::move(res.error()));
+        currentHp_ = *res;
+
+        return true;
+    }
+
+    auto updateCurrentPosition() -> std::expected<b8, std::string> {
+        auto res = accessor_.getPosition();
+        if (!res) return std::unexpected(std::move(res.error()));
+        currentPosition_ = *res;
+        return true;
+    }
+
+    auto setCurrentHp() -> std::expected<b8, std::string> {
+        auto res = accessor_.setHp(inputHp_);
+        if (!res) return std::unexpected(std::move(res.error()));
+        return true;
+    }
+
+    auto setCurrentPosition() -> std::expected<b8, std::string> {
+        auto res = accessor_.setPosition(inputTeleportPosition_);
+        if (!res) return std::unexpected(std::move(res.error()));
+        return true;
+    }
+
+    auto setCurrentPosition(std::array<f32, 3> position) -> std::expected<b8, std::string> {
+        auto res = accessor_.setPosition(position);
+        if (!res) return std::unexpected(std::move(res.error()));
+        return true;
+    }
+
+    auto importData() -> std::expected<b8, std::string> {
+        auto mgr = DataImporter::Create();
+        if (!mgr) return std::unexpected(std::move(mgr.error()));
+        auto res = mgr->importData(importWindowFilepath_);
+        if (!res) return std::unexpected(std::move(res.error()));
+        teleportTable_ = mgr->getTeleportTable();
+        return true;
+    }
+
+    auto exportData() -> std::expected<b8, std::string> {
+        auto mgr = DataExporter::Create();
+        if (!mgr) return std::unexpected(std::move(mgr.error()));
+        mgr->setTeleportTable(teleportTable_);
+        auto res = mgr->exportData(exportWindowFilepath_);
+        if (!res) return std::unexpected(std::move(res.error()));
+        return true;
+    }
+
+private:
+    Application(Window window) : window_(std::move(window)) {}
+
+private:
+    Window window_;
+    MemoryAccessor accessor_;
+
+    u64 attachedToProcess_ = false;
+
+    // main window
+    std::string mainWindowError_ = "";
+    b8 isMenuWindowShown_ = false;
+
+    // info
+    u32 currentHp_ = 0;
+    std::array<f32, 3> currentPosition_ = {};
+
+    // hp
+    u32 inputHp_ = 0;
+
+    // teleport
+    std::array<f32, 3> inputTeleportPosition_ = {};
+    std::list<teleport_t> teleportTable_ = {};
+
+    // attach window
+    b8 isAttachWindowShown_ = false;
+    std::string attachWindowError_ = "";
+    u32 attachWindowInputPid_ = 0;
+
+    // import window
+    b8 isImportWindowShown_ = false;
+    std::string importWindowError_ = "";
+    std::string importWindowFilepath_ = "";
+
+    // export window
+    b8 isExportWindowShown_ = false;
+    std::string exportWindowError_ = "";
+    std::string exportWindowFilepath_ = "";
+};

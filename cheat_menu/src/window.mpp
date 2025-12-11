@@ -1,0 +1,54 @@
+export module window;
+
+import std;
+import types;
+import glfw;
+
+
+export
+class Window {
+public:
+    Window() {};
+    ~Window() { if (window_) glfw::destroyWindow(window_); }
+    Window(Window&& rhs) : window_(std::exchange(rhs.window_, nullptr)) {}
+
+    static
+    auto Create(char const* title) -> std::optional<Window> {
+        glfw::setWindowHint(glfw::WindowHint::eContextVersionMajor, 4);
+        glfw::setWindowHint(glfw::WindowHint::eContextVersionMinor, 6);
+        glfw::setWindowHint(glfw::WindowHint::eOpenGlProfile, glfw::OpenGlProfile::eCore);
+        glfw::setWindowHint(glfw::WindowHint::eOpenGlForwardCompat, true);
+        glfw::setWindowHint(glfw::WindowHint::eWaylandAppId, "floating");
+
+        glfw::Window* window = glfw::createWindow(720, 480, title, nullptr, nullptr);
+        if (window == nullptr) return std::nullopt;
+
+        glfw::makeContextCurrent(window);
+
+        glfw::setSwapInterval(1);
+
+        return Window { window };
+    };
+
+    auto get() -> glfw::Window* { return window_; }
+
+    auto shouldClose() -> b8 {
+        return glfw::windowShouldClose(window_);
+    }
+
+    auto swapBuffers() -> void {
+        glfw::swapBuffers(window_);
+    }
+
+    auto getFrameBufferSize() -> std::pair<i32, i32> {
+        std::pair<i32, i32> size;
+        glfw::getFrameBufferSize(window_, &size.first, &size.second);
+        return size;
+    }
+
+private:
+    Window (glfw::Window* window) : window_(window) {}
+
+private:
+    glfw::Window* window_ = nullptr;
+};

@@ -1,0 +1,19 @@
+module;
+
+#include <signal.h>
+#include <sys/uio.h>
+#include <errno.h>
+
+export module posix;
+
+export
+namespace posix {
+
+auto geterrno() { return errno; }
+
+using ::kill;
+using ::iovec;
+using ::process_vm_readv;
+using ::process_vm_writev;
+
+}

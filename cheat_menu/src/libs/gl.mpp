@@ -1,0 +1,13 @@
+module;
+
+#include <GL/gl.h>
+
+export module gl;
+
+
+export
+namespace gl {
+
+auto setViewport(GLint x, GLint y, GLsizei width, GLsizei height ) { return glViewport(x, y, width, height); }
+
+}
